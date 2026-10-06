@@ -82,6 +82,8 @@ const Dict = NodeList.extend('Dict');
 const LookupVal = Node.extend('LookupVal', { fields: ['target', 'val'] });
 const If = Node.extend('If', { fields: ['cond', 'body', 'else_'] });
 const IfAsync = If.extend('IfAsync');
+const AutoEscape = Node.extend('AutoEscape', { fields: ['expr', 'body'] });
+const AutoEscapeAsync = AutoEscape.extend('AutoEscapeAsync');
 const InlineIf = Node.extend('InlineIf', { fields: ['cond', 'body', 'else_'] });
 const For = Node.extend('For', { fields: ['arr', 'name', 'body', 'else_'] });
 const AsyncEach = For.extend('AsyncEach');
@@ -224,6 +226,8 @@ module.exports = {
   TemplateData: TemplateData,
   If: If,
   IfAsync: IfAsync,
+  AutoEscape: AutoEscape,
+  AutoEscapeAsync: AutoEscapeAsync,
   InlineIf: InlineIf,
   For: For,
   AsyncEach: AsyncEach,

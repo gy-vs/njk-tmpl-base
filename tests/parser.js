@@ -309,6 +309,47 @@
       expect(n.children[0].typename).to.be('Include');
     });
 
+    it('should parse autoescape blocks', function() {
+      isAST(parser.parse('{% autoescape false %}{{ x }}{% endautoescape %}'),
+        [nodes.Root,
+          [nodes.AutoEscape,
+            [nodes.Literal, false],
+            [nodes.NodeList,
+              [nodes.Output,
+                [nodes.Symbol, 'x']]]]]);
+
+      isAST(parser.parse('{% autoescape trusted %}{{ x }}{% endautoescape %}'),
+        [nodes.Root,
+          [nodes.AutoEscape,
+            [nodes.Symbol, 'trusted'],
+            [nodes.NodeList,
+              [nodes.Output,
+                [nodes.Symbol, 'x']]]]]);
+
+      // The expression can be any expression
+      var n = parser.parse('{% autoescape foo or bar %}hi{% endautoescape %}');
+      expect(n.children[0].typename).to.be('AutoEscape');
+      expect(n.children[0].expr.typename).to.be('Or');
+
+      // Blocks can be nested
+      n = parser.parse(
+        '{% autoescape true %}a{% autoescape false %}b' +
+        '{% endautoescape %}c{% endautoescape %}');
+      expect(n.children[0].typename).to.be('AutoEscape');
+      expect(n.children[0].body.children[1].typename).to.be('AutoEscape');
+
+      // Without an expression, it inherits the environment setting
+      n = parser.parse('{% autoescape %}{{ x }}{% endautoescape %}');
+      expect(n.children[0].typename).to.be('AutoEscape');
+      expect(n.children[0].expr).to.be(null);
+    });
+
+    it('should fail to parse autoescape blocks without endautoescape', function() {
+      expect(function() {
+        parser.parse('{% autoescape false %}{{ x }}');
+      }).to.throwException(/end of file/);
+    });
+
     it('should accept attributes and methods of static arrays, objects and primitives', function() {
       expect(function() {
         parser.parse('{{ ([1, 2, 3]).indexOf(1) }}');

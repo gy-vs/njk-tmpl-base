@@ -2021,6 +2021,192 @@
       finish(done);
     });
 
+    it('should support autoescape blocks', function(done) {
+      // Disabling escaping for one block when global autoescape is on
+      equal(
+        '{{ foo }}{% autoescape false %}{{ foo }}{% endautoescape %}{{ foo }}',
+        { foo: '<b>' },
+        { autoescape: true },
+        '&lt;b&gt;<b>&lt;b&gt;');
+
+      // Enabling escaping for one block when global autoescape is off
+      equal(
+        '{% autoescape true %}{{ foo }}{{ foo|safe }}{% endautoescape %}',
+        { foo: '<b>' },
+        { autoescape: false },
+        '&lt;b&gt;<b>');
+
+      // The global setting is restored after the block
+      equal(
+        '{% autoescape false %}{{ foo }}{% endautoescape %}{{ foo }}',
+        { foo: '<b>' },
+        { autoescape: true },
+        '<b>&lt;b&gt;');
+
+      equal(
+        '{% autoescape true %}{{ foo }}{% endautoescape %}{{ foo }}',
+        { foo: '<b>' },
+        { autoescape: false },
+        '&lt;b&gt;<b>');
+
+      // safe works inside the block
+      equal(
+        '{% autoescape true %}{{ foo|safe }}{% endautoescape %}',
+        { foo: '<b>' },
+        { autoescape: false },
+        '<b>');
+
+      // The expression can be a context variable
+      equal(
+        '{% autoescape trusted %}[{{ foo }}]{% endautoescape %}[{{ foo }}]',
+        { foo: '<b>', trusted: true },
+        { autoescape: false },
+        '[&lt;b&gt;][<b>]');
+
+      equal(
+        '{% autoescape trusted %}[{{ foo }}]{% endautoescape %}[{{ foo }}]',
+        { foo: '<b>', trusted: false },
+        { autoescape: true },
+        '[<b>][&lt;b&gt;]');
+
+      // Blocks can be nested and resume the outer setting on exit
+      equal(
+        '{{ foo }}|' +
+        '{% autoescape false %}{{ foo }}|' +
+        '{% autoescape true %}{{ foo }}|{% endautoescape %}' +
+        '{{ foo }}|' +
+        '{% endautoescape %}{{ foo }}',
+        { foo: '<b>' },
+        { autoescape: true },
+        '&lt;b&gt;|<b>|&lt;b&gt;|<b>|&lt;b&gt;');
+
+      // Without an expression, the environment's setting is used
+      equal(
+        'A{{ foo }}{% autoescape %}{{ foo }}{% endautoescape %}B{{ foo }}',
+        { foo: '<b>' },
+        { autoescape: true },
+        'A&lt;b&gt;&lt;b&gt;B&lt;b&gt;');
+
+      equal(
+        'A{{ foo }}{% autoescape %}{{ foo }}{% endautoescape %}B{{ foo }}',
+        { foo: '<b>' },
+        { autoescape: false },
+        'A<b><b>B<b>');
+
+      finish(done);
+    });
+
+    it('should support autoescape blocks with async filters', function(done) {
+      var opts = {
+        autoescape: true,
+        asyncFilters: {
+          asyncWrap: function(val, cb) {
+            setTimeout(function() {
+              cb(null, '<i>' + val + '</i>');
+            }, 0);
+          }
+        }
+      };
+
+      render(
+        '{{ foo }}|{% autoescape false %}' +
+        '{{ foo|asyncWrap }}{% endautoescape %}|{{ foo }}',
+        { foo: '<b>' },
+        opts,
+        function(err, res) {
+          expect(res).to.be('&lt;b&gt;|<i><b></i>|&lt;b&gt;');
+        }
+      );
+
+      render(
+        '{% autoescape true %}{{ foo|asyncWrap }}{% endautoescape %}',
+        { foo: '<b>' },
+        { autoescape: false, asyncFilters: opts.asyncFilters },
+        function(err, res) {
+          expect(res).to.be('&lt;i&gt;&lt;b&gt;&lt;/i&gt;');
+        }
+      );
+
+      // safe still exempts a value inside the block
+      render(
+        '{% autoescape true %}{{ foo|asyncWrap|safe }}{% endautoescape %}',
+        { foo: '<b>' },
+        { autoescape: false, asyncFilters: opts.asyncFilters },
+        function(err, res) {
+          expect(res).to.be('<i><b></i>');
+        }
+      );
+
+      // a variable expression decides escaping, and the outer setting resumes
+      render(
+        '{{ foo }}|{% autoescape trusted %}{{ foo|asyncWrap }}' +
+        '{% endautoescape %}|{{ foo }}',
+        { foo: '<b>', trusted: false },
+        opts,
+        function(err, res) {
+          expect(res).to.be('&lt;b&gt;|<i><b></i>|&lt;b&gt;');
+        }
+      );
+
+      // nested blocks around async filters
+      render(
+        '{% autoescape false %}{{ foo|asyncWrap }}|' +
+        '{% autoescape true %}{{ foo|asyncWrap }}|{% endautoescape %}' +
+        '{{ foo|asyncWrap }}{% endautoescape %}',
+        { foo: '<b>' },
+        opts,
+        function(err, res) {
+          expect(res).to.be('<i><b></i>|&lt;i&gt;&lt;b&gt;&lt;/i&gt;|<i><b></i>');
+        }
+      );
+
+      finish(done);
+    });
+
+    it('should autoescape the same synchronously and asynchronously', function(done) {
+      var src = '{{ foo }}{% autoescape false %}{{ foo }}' +
+        '{% autoescape true %}{{ foo|upper }}{% endautoescape %}' +
+        '{{ foo }}{% endautoescape %}{{ foo }}';
+      var ctx = { foo: '<b>' };
+      var expected = '&lt;b&gt;<b>&lt;B&gt;<b>&lt;b&gt;';
+
+      equal(src, ctx, { autoescape: true }, expected);
+
+      render(src, ctx, { autoescape: true }, function(err, res) {
+        expect(res).to.be(expected);
+      });
+
+      finish(done);
+    });
+
+    it('should restore the setting after overriding blocks', function(done) {
+      // Overriding a setting in a child-template block works, and
+      // the rest of the template follows the environment setting
+      render(
+        '{% extends "base-autoescape.njk" %}' +
+        '{% block content %}child:{% autoescape false %}' +
+        '{{ foo }}{% endautoescape %}:{{ foo }}{% endblock %}',
+        { foo: '<b>' },
+        { autoescape: true },
+        function(err, res) {
+          expect(res).to.be('child:<b>:&lt;b&gt;');
+        }
+      );
+
+      // Includes render in their own scope and don't leak the
+      // outer template's autoescape override
+      render(
+        '{{ foo }}{% include "include-autoescape.njk" %}{{ foo }}',
+        { foo: '<b>' },
+        { autoescape: true },
+        function(err, res) {
+          expect(res).to.be('&lt;b&gt;INC:<b>&lt;b&gt;');
+        }
+      );
+
+      finish(done);
+    });
+
     it('should pass context as this to filters', function(done) {
       render(
         '{{ foo | hallo }}',

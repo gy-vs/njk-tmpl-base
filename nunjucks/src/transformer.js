@@ -123,6 +123,8 @@ function liftFilters(ast, asyncFilters) {
       return _liftFilters(node, asyncFilters, 'arr');
     } else if (node instanceof nodes.If) {
       return _liftFilters(node, asyncFilters, 'cond');
+    } else if (node instanceof nodes.AutoEscape) {
+      return _liftFilters(node, asyncFilters, 'expr');
     } else if (node instanceof nodes.CallExtension) {
       return _liftFilters(node, asyncFilters, 'args');
     } else {
@@ -157,7 +159,9 @@ function liftSuper(ast) {
 
 function convertStatements(ast) {
   return depthWalk(ast, (node) => {
-    if (!(node instanceof nodes.If) && !(node instanceof nodes.For)) {
+    if (!(node instanceof nodes.If) &&
+      !(node instanceof nodes.For) &&
+      !(node instanceof nodes.AutoEscape)) {
       return undefined;
     }
 
@@ -192,6 +196,13 @@ function convertStatements(ast) {
           node.name,
           node.body,
           node.else_
+        );
+      } else if (node instanceof nodes.AutoEscape) {
+        return new nodes.AutoEscapeAsync(
+          node.lineno,
+          node.colno,
+          node.expr,
+          node.body
         );
       }
     }

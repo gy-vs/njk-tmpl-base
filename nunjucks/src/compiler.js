@@ -30,6 +30,25 @@ class Compiler extends Obj {
     this._scopeClosers = '';
     this.inBlock = false;
     this.throwOnUndefined = throwOnUndefined;
+    // Stack of JS expressions that give the effective autoescape
+    // setting at the point currently being compiled. Every output
+    // site is wrapped with the expression on top of the stack.
+    // {% autoescape %} tags push/pop a new value, and the stack is
+    // reset to the environment setting when compiling independent
+    // render functions (blocks, macros).
+    this.autoescapeStack = ['env.opts.autoescape'];
+  }
+
+  get _autoescape() {
+    return this.autoescapeStack[this.autoescapeStack.length - 1];
+  }
+
+  _pushAutoescape(expr) {
+    this.autoescapeStack.push(expr);
+  }
+
+  _popAutoescape() {
+    this.autoescapeStack.pop();
   }
 
   fail(msg, lineno, colno) {
@@ -255,11 +274,11 @@ class Compiler extends Obj {
       const res = this._tmpid();
       this._emitLine(', ' + this._makeCallback(res));
       this._emitLine(
-        `${this.buffer} += runtime.suppressValue(${res}, ${autoescape} && env.opts.autoescape);`);
+        `${this.buffer} += runtime.suppressValue(${res}, ${autoescape} && ${this._autoescape});`);
       this._addScopeLevel();
     } else {
       this._emit(')');
-      this._emit(`, ${autoescape} && env.opts.autoescape);\n`);
+      this._emit(`, ${autoescape} && ${this._autoescape});\n`);
     }
   }
 
@@ -631,6 +650,45 @@ class Compiler extends Obj {
     this._addScopeLevel();
   }
 
+  compileAutoEscape(node, frame, async) {
+    // Evaluate the expression once and use it as the effective
+    // autoescape setting for the body. Capturing it in a local
+    // variable also means async callbacks scheduled from the body
+    // (async filters, etc.) see a stable value.
+    // Without an expression, like Jinja2, the environment's setting
+    // is used.
+    let escapeExpr;
+    if (node.expr) {
+      const id = this._tmpid();
+      this._emit('var ' + id + ' = (');
+      this._compileExpression(node.expr, frame);
+      this._emitLine(') ? true : false;');
+      escapeExpr = id;
+    } else {
+      escapeExpr = 'env.opts.autoescape';
+    }
+
+    this._pushAutoescape(escapeExpr);
+    this._emitLine('{');
+
+    this._withScopedSyntax(() => {
+      this.compile(node.body, frame);
+      if (async) {
+        this._emit('cb()');
+      }
+    });
+
+    this._emitLine('}');
+    this._popAutoescape();
+  }
+
+  compileAutoEscapeAsync(node, frame) {
+    this._emit('(function(cb) {');
+    this.compileAutoEscape(node, frame, true);
+    this._emit('})(' + this._makeCallback());
+    this._addScopeLevel();
+  }
+
   _emitLoopBindings(node, arr, i, len) {
     const bindings = [
       {name: 'index', val: `${i} + 1`},
@@ -889,9 +947,16 @@ class Compiler extends Obj {
 
     const bufferId = this._pushBuffer();
 
+    // A macro is invoked as an independent render function, so its
+    // body follows the environment's autoescape setting rather than
+    // the setting at its definition site.
+    this._pushAutoescape('env.opts.autoescape');
+
     this._withScopedSyntax(() => {
       this.compile(node.body, currFrame);
     });
+
+    this._popAutoescape();
 
     this._emitLine('frame = ' + ((keepFrame) ? 'frame.pop();' : 'callerFrame;'));
     this._emitLine(`return new runtime.SafeString(${bufferId});`);
@@ -1111,7 +1176,7 @@ class Compiler extends Obj {
         if (this.throwOnUndefined) {
           this._emit(`,${node.lineno},${node.colno})`);
         }
-        this._emit(', env.opts.autoescape);\n');
+        this._emit(', ' + this._autoescape + ');\n');
       }
     });
   }
@@ -1151,7 +1216,12 @@ class Compiler extends Obj {
 
       const tmpFrame = new Frame();
       this._emitLine('var frame = frame.push(true);');
+      // Blocks are rendered through their own render functions
+      // (also when invoked by parent templates), so they start from
+      // the environment's autoescape setting.
+      this._pushAutoescape('env.opts.autoescape');
       this.compile(block.body, tmpFrame);
+      this._popAutoescape();
       this._emitFuncEnd();
     });
 

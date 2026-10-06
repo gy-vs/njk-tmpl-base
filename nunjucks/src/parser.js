@@ -485,6 +485,27 @@ class Parser extends Obj {
     return node;
   }
 
+  parseAutoEscape() {
+    const tag = this.peekToken();
+    if (!this.skipSymbol('autoescape')) {
+      this.fail('parseAutoEscape: expected autoescape', tag.lineno, tag.colno);
+    }
+
+    const node = new nodes.AutoEscape(tag.lineno, tag.colno);
+
+    // Like Jinja2, the expression is optional: {% autoescape %} ...
+    // {% endautoescape %} inherits the environment's autoescape setting.
+    if (this.peekToken().type !== lexer.TOKEN_BLOCK_END) {
+      node.expr = this.parseExpression();
+    }
+    this.advanceAfterBlockEnd(tag.value);
+
+    node.body = this.parseUntilBlocks('endautoescape');
+    this.advanceAfterBlockEnd();
+
+    return node;
+  }
+
   parseSet() {
     const tag = this.peekToken();
     if (!this.skipSymbol('set')) {
@@ -613,6 +634,8 @@ class Parser extends Obj {
       case 'if':
       case 'ifAsync':
         return this.parseIf();
+      case 'autoescape':
+        return this.parseAutoEscape();
       case 'for':
       case 'asyncEach':
       case 'asyncAll':
