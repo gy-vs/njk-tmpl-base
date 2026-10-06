@@ -625,6 +625,8 @@ class Parser extends Obj {
         return this.parseInclude();
       case 'set':
         return this.parseSet();
+      case 'autoescape':
+        return this.parseAutoescape();
       case 'macro':
         return this.parseMacro();
       case 'call':
@@ -1103,6 +1105,21 @@ class Parser extends Obj {
     }
 
     return node;
+  }
+
+  parseAutoescape() {
+    const tok = this.peekToken();
+    if (!this.skipSymbol('autoescape')) {
+      this.fail('parseAutoescape: expected autoescape', tok.lineno, tok.colno);
+    }
+
+    const expr = this.parseExpression();
+    this.advanceAfterBlockEnd(tok.value);
+
+    const body = this.parseUntilBlocks('endautoescape');
+    this.advanceAfterBlockEnd();
+
+    return new nodes.Autoescape(tok.lineno, tok.colno, expr, body);
   }
 
   parseFilterStatement() {

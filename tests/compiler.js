@@ -1986,6 +1986,101 @@
       finish(done);
     });
 
+    it('should not autoescape inside an autoescape false block', function(done) {
+      equal(
+        '{{ x }}{% autoescape false %}{{ x }}{% endautoescape %}{{ x }}',
+        { x: '<b>' },
+        { autoescape: true },
+        '&lt;b&gt;<b>&lt;b&gt;');
+
+      finish(done);
+    });
+
+    it('should autoescape inside an autoescape true block', function(done) {
+      equal(
+        '{% autoescape true %}{{ x }}{{ x|safe }}{% endautoescape %}{{ x }}',
+        { x: '<b>' },
+        { autoescape: false },
+        '&lt;b&gt;<b><b>');
+
+      finish(done);
+    });
+
+    it('should evaluate the autoescape expression from the context', function(done) {
+      equal(
+        '{% autoescape trusted %}{{ x }}{% endautoescape %}',
+        { x: '<b>', trusted: false },
+        { autoescape: true },
+        '<b>');
+
+      equal(
+        '{% autoescape trusted %}{{ x }}{% endautoescape %}',
+        { x: '<b>', trusted: true },
+        { autoescape: false },
+        '&lt;b&gt;');
+
+      equal(
+        '{% autoescape a and b %}{{ x }}{% endautoescape %}',
+        { x: '<b>', a: true, b: false },
+        { autoescape: true },
+        '<b>');
+
+      finish(done);
+    });
+
+    it('should restore the enclosing autoescape setting after nested blocks', function(done) {
+      equal(
+        '{% autoescape false %}{{ x }}' +
+        '{% autoescape true %}{{ x }}{% endautoescape %}' +
+        '{{ x }}{% endautoescape %}{{ x }}',
+        { x: '<b>' },
+        { autoescape: true },
+        '<b>&lt;b&gt;<b>&lt;b&gt;');
+
+      finish(done);
+    });
+
+    it('should apply autoescape blocks to async filters', function(done) {
+      var asyncFilters = {
+        shout: function(s, cb) {
+          setTimeout(function() {
+            cb(null, s.toUpperCase());
+          }, 1);
+        }
+      };
+
+      render(
+        '{% autoescape true %}{{ x|shout }}{% endautoescape %}{{ x }}',
+        { x: '<b>' },
+        { autoescape: false, asyncFilters: asyncFilters },
+        function(err, res) {
+          expect(res).to.be('&lt;B&gt;<b>');
+        });
+
+      render(
+        '{% autoescape false %}{{ x|shout }}{% endautoescape %}{{ x }}',
+        { x: '<b>' },
+        { autoescape: true, asyncFilters: asyncFilters },
+        function(err, res) {
+          expect(res).to.be('<B>&lt;b&gt;');
+        });
+
+      finish(done);
+    });
+
+    it('should render autoescape blocks the same synchronously and asynchronously', function(done) {
+      var tmpl = '{{ x }}{% autoescape false %}{{ x }}{% endautoescape %}{{ x }}';
+      var ctx = { x: '<b>' };
+      var syncRes = render(tmpl, ctx, { autoescape: true });
+
+      render(tmpl, ctx, { autoescape: true }, function(err, res) {
+        expect(res).to.be('&lt;b&gt;<b>&lt;b&gt;');
+        expect(res).to.be(syncRes);
+      });
+
+      finish(done);
+    });
+
     it('should not autoescape when extension set false', function(done) {
       function TestExtension() {
         // jshint validthis: true

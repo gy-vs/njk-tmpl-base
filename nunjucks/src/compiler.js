@@ -30,6 +30,9 @@ class Compiler extends Obj {
     this._scopeClosers = '';
     this.inBlock = false;
     this.throwOnUndefined = throwOnUndefined;
+    // JS expression used as the autoescape argument when emitting
+    // output; `null` means fall back to the environment setting.
+    this._autoescape = null;
   }
 
   fail(msg, lineno, colno) {
@@ -1091,6 +1094,22 @@ class Compiler extends Obj {
     this.buffer = buffer;
   }
 
+  compileAutoescape(node, frame) {
+    // The expression is evaluated once at render time; its
+    // truthiness overrides env.opts.autoescape for output emitted
+    // inside the block, and the previous setting is restored when
+    // the block ends (so blocks nest correctly).
+    const id = this._tmpid();
+    this._emit(`var ${id} = `);
+    this._compileExpression(node.expr, frame);
+    this._emitLine(';');
+
+    const autoescape = this._autoescape;
+    this._autoescape = id;
+    this.compile(node.body, frame);
+    this._autoescape = autoescape;
+  }
+
   compileOutput(node, frame) {
     const children = node.children;
     children.forEach(child => {
@@ -1111,7 +1130,7 @@ class Compiler extends Obj {
         if (this.throwOnUndefined) {
           this._emit(`,${node.lineno},${node.colno})`);
         }
-        this._emit(', env.opts.autoescape);\n');
+        this._emit(`, ${this._autoescape || 'env.opts.autoescape'});\n`);
       }
     });
   }

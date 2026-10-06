@@ -309,6 +309,22 @@
       expect(n.children[0].typename).to.be('Include');
     });
 
+    it('should parse autoescape blocks', function() {
+      var n = parser.parse('{% autoescape true %}stuff{% endautoescape %}');
+      expect(n.children[0].typename).to.be('Autoescape');
+      expect(n.children[0].expr.typename).to.be('Literal');
+      expect(n.children[0].expr.value).to.be(true);
+      expect(n.children[0].body.children[0].typename).to.be('Output');
+
+      n = parser.parse('{% autoescape trusted %}{{ x }}{% endautoescape %}');
+      expect(n.children[0].typename).to.be('Autoescape');
+      expect(n.children[0].expr.typename).to.be('Symbol');
+
+      expect(function() {
+        parser.parse('{% autoescape false %}stuff');
+      }).to.throwException(/unexpected end of file/);
+    });
+
     it('should accept attributes and methods of static arrays, objects and primitives', function() {
       expect(function() {
         parser.parse('{{ ([1, 2, 3]).indexOf(1) }}');
